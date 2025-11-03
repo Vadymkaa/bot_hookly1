@@ -158,45 +158,25 @@ async def send_lesson_to_user(chat_id: int):
         save_users(users)
         return
 
+    # Беремо Telegram file_id
     video_id = MODULE_VIDEOS[idx]
     caption = MODULE_TEXTS[idx]
 
-    if not video_file.exists():
-        await bot.send_message(chat_id, f"⚠️ Відео для модуля {idx+1} відсутнє.")
-        return
-
-    send_path = video_file
-    temp: Optional[Path] = None
-
     try:
-        if ENABLE_WATERMARK:
-            try:
-                chat = await bot.get_chat(chat_id)
-                user_tag = chat.username or f"id{chat_id}"
-            except Exception:
-                user_tag = f"id{chat_id}"
-
-            try:
-                send_path = create_watermarked_video(video_file, user_tag)
-                temp = send_path
-            except Exception:
-                pass
-
         await bot.send_video(
-    chat_id=chat_id,
-    video=video_id,
-    caption=caption,
-    parse_mode="Markdown",
-    protect_content=True,
-)
-
+            chat_id=chat_id,
+            video=video_id,  # <-- file_id напряму
+            caption=caption,
+            parse_mode="Markdown",
+            protect_content=True,
+        )
 
         users[key]["module_idx"] = idx + 1
         save_users(users)
 
-    finally:
-        if temp:
-            temp.unlink(missing_ok=True)
+    except Exception as e:
+        await bot.send_message(chat_id, f"❌ Помилка при відправці відео: {e}")
+
 
 # ----------------- ЩОДЕННА РОЗСИЛКА -----------------
 async def daily_job():
