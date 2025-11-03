@@ -158,7 +158,7 @@ async def send_lesson_to_user(chat_id: int):
         save_users(users)
         return
 
-    video_file = VIDEOS_DIR / MODULE_VIDEOS[idx]
+    video_id = MODULE_VIDEOS[idx]
     caption = MODULE_TEXTS[idx]
 
     if not video_file.exists():
@@ -182,14 +182,14 @@ async def send_lesson_to_user(chat_id: int):
             except Exception:
                 pass
 
-        with open(send_path, "rb") as fp:
-            await bot.send_video(
-                chat_id=chat_id,
-                video=fp,
-                caption=caption,
-                parse_mode="Markdown",
-                protect_content=True,
-            )
+        await bot.send_video(
+    chat_id=chat_id,
+    video=video_id,
+    caption=caption,
+    parse_mode="Markdown",
+    protect_content=True,
+)
+
 
         users[key]["module_idx"] = idx + 1
         save_users(users)
