@@ -30,65 +30,25 @@ BEFORE_TEXTS: List[str] = [
 
 Вітаю тебе на практичному курсі «Як створювати креативи, які продають у Canva» 💚
 
-Ми компанія Hookly, і протягом 5 днів ми разом пройдемо шлях від “не знаю, що робити” до “створюю креативи, які реально приносять продажі”.
-
-💡 План простий:
-— кожного дня ти отримуєш коротке відео і завдання на практику;
-— дізнаєшся, як мислити як маркетолог, а не просто дизайнер;
-— навчишся робити візуали, що зупиняють скрол і викликають бажання купити.
-
-Цей курс — не про «красиві картинки».
-Це про стратегію, емоцію і прості дії, які допоможуть будь-кому створювати ефективний візуал навіть без досвіду.
-
-🔥 Вже за кілька днів ти зрозумієш,
-— чому більшість креативів не працюють,
-— як знайти ідею, яка зачепить емоційно,
-— і як зробити дизайн у Canva, який виглядає професійно.
-
-Готовий(-а) перейти від “гарно, але не продає” до “просто і ефективно”?
-
-🎥 У цьому уроці ти дізнаєшся, чому головне не дизайн, а мислення маркетолога — і як з цього починаються всі креативи, що продають.
+🎥 У цьому уроці ти дізнаєшся, чому головне не дизайн, а мислення маркетолога.
 """,
-    """Привіт! Це другий день інтенсиву «Стратегічне мислення у житті».
-...""",
-    """Привіт! Це вже третій день інтенсиву.
-...""",
-    """Привіт! Сьогодні четвертий день інтенсиву.
-...""",
-    """Привіт! Це вже п’ятий день 🚀
-...""",
-    """Привіт! День шостий, і він про головне джерело росту — твій досвід.
-...""",
-    """Привіт! Ми на фініші 🎉 Це сьомий день інтенсиву.
-...""",
+    "Привіт! Це другий день інтенсиву...",
+    "Привіт! Це третій день...",
+    "Привіт! Це четвертий день...",
+    "Привіт! Це п’ятий день..."
 ]
 
-AFTER_TEXTS: List[str] = [
+AFTER_TEXTS = [
     "🎯 Сьогодні протягом дня...",
     "🎯 За 10 хвилин сформулюй одну річну ціль...",
-    "🎯 Візьми одну актуальну проблему...",
-    "🎯 Обери одну подію на найближчий місяць...",
-    "🎯 Згадай ситуацію, яка зараз «тягне енергію»...",
-    "🎯 Візьми одну подію за останній тиждень...",
-    "🎯 Згадай ситуацію, де на тебе тиснули...",
+    "🎯 Візьми одну проблему...",
+    "🎯 Обери одну подію...",
+    "🎯 Згадай ситуацію..."
 ]
 
-EXTRA_FILES = {
-    2: {
-        "file_id": "BQACAgIAAxkBAAMWaNlrlhmIMxyw83LziEfWwjhElE0AAvV8AALpGdBKtgyt93qRCbA2BA",
-        "caption": "📄 А ще тримай файл..."
-    },
-    4: {
-        "file_id": "BQACAgIAAxkBAAMYaNlrtQABjOzo9ZfJkpx6ELmPGMsBAAL5fAAC6RnQSpLVoM23a5PnNgQ",
-        "caption": "📄 Файл для техніки спокою..."
-    },
-    7: {
-        "file_id": "BQACAgIAAxkBAAIBbGjmyqrO2OSWWd8_JpDWOscuc9UaAAKWkQACUwo5S4ink2cSfZEvNgQ",
-        "caption": "📄 Закляття проти дурні 😁"
-    }
-}
+EXTRA_FILES = {}
 
-DB_PATH = os.environ.get("DB_PATH", "users.db")
+DB_PATH = "users.db"
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "22042004")
 
@@ -97,7 +57,7 @@ COUNT_ASK_PWD = 1
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ===================== DB =====================
+# ===================== БАЗА ДАНИХ =====================
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS users (
     chat_id INTEGER PRIMARY KEY,
@@ -106,14 +66,13 @@ CREATE TABLE IF NOT EXISTS users (
 );
 """
 
-
 def get_db_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL;")
     return conn
 
 
-# ===================== НАДСИЛАННЯ ВІДЕО =====================
+# ===================== ВІДЕО =====================
 async def send_protected_video(context, chat_id, source, caption=None):
     await context.bot.send_video(
         chat_id=chat_id,
@@ -125,13 +84,13 @@ async def send_protected_video(context, chat_id, source, caption=None):
     )
 
 
+# ===================== JOBS =====================
 async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
     chat_id = job.chat_id
 
     conn = get_db_conn()
     cur = conn.cursor()
-
     cur.execute("SELECT last_index FROM users WHERE chat_id=?", (chat_id,))
     row = cur.fetchone()
 
@@ -148,6 +107,7 @@ async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
         conn.close()
         return
 
+    # BEFORE TEXT
     if next_index < len(BEFORE_TEXTS):
         await context.bot.send_message(
             chat_id=chat_id,
@@ -155,10 +115,11 @@ async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.HTML
         )
 
+    # VIDEO
     await send_protected_video(
-        context,
-        chat_id,
-        VIDEO_SOURCES[next_index],
+        context=context,
+        chat_id=chat_id,
+        source=VIDEO_SOURCES[next_index],
         caption=f"🎬 Відео {next_index + 1} з {len(VIDEO_SOURCES)}"
     )
 
@@ -167,6 +128,7 @@ async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
 
     conn.close()
 
+    # SCHEDULE AFTER TEXT
     context.job_queue.run_once(
         send_after_text_job,
         when=20 * 60,
@@ -176,7 +138,6 @@ async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
 
 async def send_after_text_job(context):
     chat_id = context.job.chat_id
-
     conn = get_db_conn()
     cur = conn.cursor()
 
@@ -196,46 +157,6 @@ async def send_after_text_job(context):
             parse_mode=ParseMode.HTML
         )
 
-    day_num = last_index + 1
-    if day_num in EXTRA_FILES:
-        extra = EXTRA_FILES[day_num]
-        await context.bot.send_document(chat_id=chat_id, document=extra["file_id"], caption=extra["caption"])
-
-
-# ===================== КОМАНДИ =====================
-async def start(update: Update, context):
-    chat_id = update.effective_chat.id
-
-    conn = get_db_conn()
-    with conn:
-        conn.execute("INSERT OR REPLACE INTO users(chat_id, started_at, last_index) VALUES(?,?,?)",
-                     (chat_id, datetime.now(timezone.utc).isoformat(), 0))
-    conn.close()
-
-    # ✅ Відправка відео (правильний виклик)
-    await send_protected_video(
-        context=context,
-        chat_id=chat_id,
-        video_id=VIDEO_SOURCES[0],
-        caption=BEFORE_TEXTS[0]
-    )
-
-    # ✅ Кнопка Instagram
-    keyboard = [
-        [InlineKeyboardButton("Instagram 📸", url="https://instagram.com/hookly.software")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
-        "Привіт! 👋\nОсь мої соцмережі:",
-        reply_markup=reply_markup
-    )
-
-    # ✅ планування наступних відправок
-    context.job_queue.run_once(send_after_text_job, when=15 * 60, chat_id=chat_id)
-    schedule_user_job(context, chat_id)
-
-
 
 def schedule_user_job(context, chat_id):
     for j in context.job_queue.get_jobs_by_name(f"daily_{chat_id}"):
@@ -249,7 +170,44 @@ def schedule_user_job(context, chat_id):
     )
 
 
-async def stop(update: Update, context):
+# ===================== КОМАНДИ =====================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+
+    conn = get_db_conn()
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO users(chat_id, started_at, last_index) VALUES(?,?,?)",
+            (chat_id, datetime.now(timezone.utc).isoformat(), 0)
+        )
+    conn.close()
+
+    # ✅ ПЕРШЕ ВІДЕО
+    await update.message.reply_text(BEFORE_TEXTS[0])
+    await send_protected_video(
+        context=context,
+        chat_id=chat_id,
+        source=VIDEO_SOURCES[0],
+        caption="🎬 Відео 1 з 5"
+    )
+
+    # ✅ Кнопка Instagram
+    keyboard = [
+        [InlineKeyboardButton("Instagram 📸", url="https://instagram.com/hookly.software")]
+    ]
+    await update.message.reply_text(
+        "Привіт! 👋\nОсь мої соцмережі:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+    # ✅ AFTER TEXT через 15 хв
+    context.job_queue.run_once(send_after_text_job, when=15 * 60, chat_id=chat_id)
+
+    # ✅ Запланувати наступний день
+    schedule_user_job(context, chat_id)
+
+
+async def stop(update, context):
     chat_id = update.effective_chat.id
 
     for j in context.job_queue.get_jobs_by_name(f"daily_{chat_id}"):
@@ -260,14 +218,13 @@ async def stop(update: Update, context):
         conn.execute("DELETE FROM users WHERE chat_id=?", (chat_id,))
     conn.close()
 
-    await update.message.reply_text("🛑 Розсилка зупинена.")
+    await update.message.reply_text("🛑 Розсилку зупинено.")
 
 
 async def status_cmd(update, context):
     chat_id = update.effective_chat.id
     conn = get_db_conn()
     cur = conn.cursor()
-
     cur.execute("SELECT started_at, last_index FROM users WHERE chat_id=?", (chat_id,))
     row = cur.fetchone()
     conn.close()
@@ -331,7 +288,6 @@ async def post_init(app):
 async def main():
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
-    # handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stop", stop))
     app.add_handler(CommandHandler("status", status_cmd))
@@ -340,38 +296,10 @@ async def main():
     count_conv = ConversationHandler(
         entry_points=[CommandHandler("count", count_cmd)],
         states={COUNT_ASK_PWD: [MessageHandler(filters.TEXT & ~filters.COMMAND, count_check_pwd)]},
-        fallbacks=[],
+        fallbacks=[]
     )
     app.add_handler(count_conv)
 
     app.add_handler(MessageHandler((filters.VIDEO | filters.Document.ALL), echo_file))
 
-    # ✅ RUN POLLING (без конфліктів)
-    await app.run_polling(
-        drop_pending_updates=True,
-        allowed_updates=Update.ALL_TYPES,
-    )
-
-
-if __name__ == "__main__":
-    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
-
-    # handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("stop", stop))
-    app.add_handler(CommandHandler("status", status_cmd))
-    app.add_handler(CommandHandler("help", help_cmd))
-
-    count_conv = ConversationHandler(
-        entry_points=[CommandHandler("count", count_cmd)],
-        states={COUNT_ASK_PWD: [MessageHandler(filters.TEXT & ~filters.COMMAND, count_check_pwd)]},
-        fallbacks=[],
-    )
-    app.add_handler(count_conv)
-    app.add_handler(MessageHandler((filters.VIDEO | filters.Document.ALL), echo_file))
-
-    app.run_polling(
-        drop_pending_updates=True,
-        allowed_updates=Update.ALL_TYPES,
-    )
-
+    await app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
