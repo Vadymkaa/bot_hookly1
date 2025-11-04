@@ -324,5 +324,24 @@ async def main():
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+
+    # handlers
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stop", stop))
+    app.add_handler(CommandHandler("status", status_cmd))
+    app.add_handler(CommandHandler("help", help_cmd))
+
+    count_conv = ConversationHandler(
+        entry_points=[CommandHandler("count", count_cmd)],
+        states={COUNT_ASK_PWD: [MessageHandler(filters.TEXT & ~filters.COMMAND, count_check_pwd)]},
+        fallbacks=[],
+    )
+    app.add_handler(count_conv)
+    app.add_handler(MessageHandler((filters.VIDEO | filters.Document.ALL), echo_file))
+
+    app.run_polling(
+        drop_pending_updates=True,
+        allowed_updates=Update.ALL_TYPES,
+    )
+
