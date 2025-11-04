@@ -212,12 +212,16 @@ async def start(update: Update, context):
                      (chat_id, datetime.now(timezone.utc).isoformat(), 0))
     conn.close()
 
+    # ✅ Відправка відео (правильний виклик)
     await send_protected_video(
-        context,
-        chat_id,
-        VIDEO_SOURCES[0],
+        context=context,
+        chat_id=chat_id,
+        video_id=VIDEO_SOURCES[0],
         caption=BEFORE_TEXTS[0]
-         keyboard = [
+    )
+
+    # ✅ Кнопка Instagram
+    keyboard = [
         [InlineKeyboardButton("Instagram 📸", url="https://instagram.com/hookly.software")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -227,8 +231,10 @@ async def start(update: Update, context):
         reply_markup=reply_markup
     )
 
+    # ✅ планування наступних відправок
     context.job_queue.run_once(send_after_text_job, when=15 * 60, chat_id=chat_id)
     schedule_user_job(context, chat_id)
+
 
 
 def schedule_user_job(context, chat_id):
