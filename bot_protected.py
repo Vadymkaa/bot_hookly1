@@ -133,7 +133,7 @@ EXTRA_FILES = {
 }
 
 DB_PATH = os.environ.get("DB_PATH", "users.db")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8389441409:AAF8Me9CyFJBGNzUVZL8S9dg_ZYdz7xAaUc")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
 # ==== ДОДАНО: пароль для /count та state розмови ====
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "22042004")
