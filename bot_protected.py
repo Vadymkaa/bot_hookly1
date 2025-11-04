@@ -497,14 +497,17 @@ def main():
     if not BOT_TOKEN:
         raise RuntimeError("Не задано BOT_TOKEN у змінній середовища!")
 
+    # ==== URL твого бота на Render ====
+    WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # типу: https://your-service.onrender.com/webhook
+
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
+    # ---Handlers---
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stop", stop))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
 
-    # === ДОДАНО: /count як розмова з паролем ===
     count_conv = ConversationHandler(
         entry_points=[CommandHandler("count", count_cmd)],
         states={
@@ -518,7 +521,12 @@ def main():
 
     app.add_handler(MessageHandler((filters.VIDEO | filters.Document.ALL) & filters.ChatType.PRIVATE, echo_file))
 
-    app.run_polling()
+    # ==== запускаємо webhook замість polling ====
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=int(os.environ.get("PORT", 10000)),
+        webhook_url=f"{WEBHOOK_URL}"
+    )
 
 
 if __name__ == "__main__":
