@@ -110,28 +110,32 @@ BEFORE_TEXTS: List[str] = [
 
 🚀 Готовий(-а) перевірити свої ідеї на практиці?
 Тоді вперед — сьогодні саме час створювати дизайн, який продає.""",
-    """Привіт 👋
+    # Фінальний день — просто текст без відео
+    """💚 Вітаю, ти пройшов(ла) курс «Як створювати креативи, які продають у Canva»! Тепер ти не просто вмієш натискати кнопки — ти розумієш логіку маркетингового мислення, знаєш, як створити візуал, який викликає емоцію, і можеш упевнено робити креативи, що реально продають. 
 
-Сьогодні — наш останній день курсу “Як створювати креативи, які продають у Canva” 💚
+🔥 Але це тільки початок.
 
-Ти вже навчився мислити як маркетолог, працювати з шаблонами, кольорами, текстами та створювати власні креативи.
+Ми — Hookly — команда, яка допомагає бізнесам і експертам зростати через дизайн і стратегію.
 
-І тепер час поставити фінальну крапку — або скоріше, впевнено натиснути “Зберегти” 😉
+💼 Ми створюємо:
+— сайти та лендінги, які продають ще до того, як ти зняв перше відео;
+— Telegram-боти, які автоматизують продажі та навчання;
+— фірмові айдентики, бренд-паки й маркетингові системи під ключ.
 
-🎨 У цьому уроці ми розберемо:
-— як правильно зберігати креативи у різних форматах, щоб не втрачати якість;
-— які формати обрати для реклами, соціальних мереж і лендингів;
-— і, звісно, кілька корисних фішок у Canva, які зроблять твою роботу швидшою та зручнішою.
+Якщо після цього курсу ти хочеш:
+— розвинути свій курс або бізнес візуально;
+— масштабуватися через автоматизацію;
+— або просто довірити дизайн професіоналам —
 
-💡 Це ті дрібниці, які відрізняють “початківця” від людини, що справді володіє інструментом.
+👉 Hookly допоможе зробити це якісно, швидко й зі смаком.
 
-🎥 Після цього відео ти зможеш самостійно створювати, оформлювати й експортувати будь-який дизайн — від сторіс до рекламного банера.
+🌐 Напиши нам в інстаграм або ж в особисті в телеграм @hookly_software — ми підберемо рішення саме для твого проєкту.
 
-🚀 Дякую, що пройшов(-ла) цей шлях до кінця!
+І пам’ятай:
+Навіть найкраща ідея потребує правильного креативу, щоб стати успіхом.
 
-Пам’ятай: найкращі креативи народжуються не з ідеальних шаблонів, а з твоїх ідей і впевненості у своїй подачі.
-
-💬 І зовсім скоро — бонус: кілька прихованих фішок Canva, про які знають лише досвідчені дизайнери 😉""",
+🚀 Дякуємо, що був(ла) з нами.
+До зустрічі у наступних проєктах від Hookly 💚"""
 ]
 
 AFTER_TEXTS: List[str] = [
@@ -151,7 +155,6 @@ AFTER_TEXTS: List[str] = [
 Переглянь кожен на телефоні, комп’ютері й у Telegram.
 Зверни увагу, як змінюється якість — так ти навчишся бачити різницю професійного підходу 👁‍🗨""",
 ]
-
 
 DB_PATH = os.environ.get("DB_PATH", "users.db")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
@@ -177,7 +180,6 @@ def get_db_conn():
     conn.execute("PRAGMA journal_mode=WAL;")
     return conn
 
-
 # ===================== НАДСИЛАННЯ ВІДЕО =====================
 
 async def send_protected_video(context, chat_id, source, caption=None):
@@ -190,7 +192,6 @@ async def send_protected_video(context, chat_id, source, caption=None):
         supports_streaming=True
     )
 
-
 async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
     chat_id = job.chat_id
@@ -199,26 +200,48 @@ async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
     cur = conn.cursor()
     cur.execute("SELECT last_index FROM users WHERE chat_id=?", (chat_id,))
     row = cur.fetchone()
+    conn.close()
 
     if not row:
         job.schedule_removal()
-        conn.close()
         return
 
     last_index = row[0]
     next_index = last_index + 1
 
-    if next_index >= len(VIDEO_SOURCES):
+    if next_index >= len(BEFORE_TEXTS):
         job.schedule_removal()
-        conn.close()
         return
 
-    if next_index < len(BEFORE_TEXTS):
+    # Фінальний день — все одразу
+    if next_index == len(BEFORE_TEXTS) - 1:
+        final_text = BEFORE_TEXTS[next_index]
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Підпишись на інсту 🎯", url="https://www.instagram.com/hookly.software/")]
+        ])
         await context.bot.send_message(
             chat_id=chat_id,
-            text=BEFORE_TEXTS[next_index],
-            parse_mode=ParseMode.HTML
+            text=final_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard
         )
+        # Оновлюємо індекс
+        conn = get_db_conn()
+        with conn:
+            conn.execute(
+                "UPDATE users SET last_index=? WHERE chat_id=?",
+                (next_index, chat_id)
+            )
+        conn.close()
+        job.schedule_removal()
+        return
+
+    # Звичайний день: надсилаємо текст + відео
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=BEFORE_TEXTS[next_index],
+        parse_mode=ParseMode.HTML
+    )
 
     await send_protected_video(
         context=context,
@@ -227,6 +250,8 @@ async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
         caption=f"🎬 Відео {next_index + 1} з {len(VIDEO_SOURCES)}"
     )
 
+    # Оновлюємо індекс
+    conn = get_db_conn()
     with conn:
         conn.execute(
             "UPDATE users SET last_index=? WHERE chat_id=?",
@@ -234,7 +259,8 @@ async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
         )
     conn.close()
 
-    context.job_queue.run_once(send_after_text_job, when=20 * 60, chat_id=chat_id)
+    # Плануємо after_text через 20 хв
+    context.job_queue.run_once(send_after_text_job, when=20*60, chat_id=chat_id)
 
 
 async def send_after_text_job(context):
@@ -251,6 +277,7 @@ async def send_after_text_job(context):
 
     last_index = row[0]
 
+    # Надсилаємо завдання
     if last_index < len(AFTER_TEXTS):
         await context.bot.send_message(
             chat_id=chat_id,
@@ -258,15 +285,16 @@ async def send_after_text_job(context):
             parse_mode=ParseMode.HTML
         )
 
-    day_num = last_index + 1
-    if day_num in EXTRA_FILES:
-        extra = EXTRA_FILES[day_num]
-        await context.bot.send_document(
+    # Для фінального повідомлення додаємо кнопку
+    if last_index == len(BEFORE_TEXTS) - 1:
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Підпишись на інсту 🎯", url="https://www.instagram.com/hookly.software/")]
+        ])
+        await context.bot.send_message(
             chat_id=chat_id,
-            document=extra["file_id"],
-            caption=extra["caption"]
+            text="👇 Підпишись, щоб не пропустити нові проєкти Hookly:",
+            reply_markup=keyboard
         )
-
 
 # ===================== КОМАНДИ =====================
 
@@ -281,20 +309,24 @@ async def start(update: Update, context):
         )
     conn.close()
 
-    # ✅ Відправляємо перше відео
+    # ✅ Надсилаємо перший текст + відео
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=BEFORE_TEXTS[0],
+        parse_mode=ParseMode.HTML
+    )
+
     await send_protected_video(
         context=context,
         chat_id=chat_id,
         source=VIDEO_SOURCES[0],
-        caption=BEFORE_TEXTS[0]
+        caption=f"🎬 Відео 1 з {len(VIDEO_SOURCES)}"
     )
 
-    # ✅ Кнопка
+    # ✅ Кнопка одразу після старту
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("Підпишись на інсту 🎯", url="https://www.instagram.com/hookly.software/")]
     ])
-
-    # ✅ Відправляємо текст з кнопкою
     await context.bot.send_message(
         chat_id=chat_id,
         text="👇 Підпишись, щоб не пропустити нові уроки:",
@@ -304,8 +336,6 @@ async def start(update: Update, context):
     # ✅ Розсилка після 15 хв
     context.job_queue.run_once(send_after_text_job, when=15 * 60, chat_id=chat_id)
     schedule_user_job(context, chat_id)
-
-
 
 def schedule_user_job(context, chat_id):
     for j in context.job_queue.get_jobs_by_name(f"daily_{chat_id}"):
@@ -317,7 +347,6 @@ def schedule_user_job(context, chat_id):
         chat_id=chat_id,
         name=f"daily_{chat_id}"
     )
-
 
 async def stop(update: Update, context):
     chat_id = update.effective_chat.id
@@ -331,7 +360,6 @@ async def stop(update: Update, context):
     conn.close()
 
     await update.message.reply_text("🛑 Розсилка зупинена.")
-
 
 async def status_cmd(update, context):
     chat_id = update.effective_chat.id
@@ -353,7 +381,6 @@ async def status_cmd(update, context):
         f"📦 Пройдено: {index + 1} із {len(VIDEO_SOURCES)}"
     )
 
-
 async def help_cmd(update, context):
     await update.message.reply_text(
         "/start — почати\n"
@@ -362,7 +389,6 @@ async def help_cmd(update, context):
         "/help — довідка\n"
     )
 
-
 async def echo_file(update, context):
     m = update.message
     if m.video:
@@ -370,13 +396,11 @@ async def echo_file(update, context):
     elif m.document:
         await m.reply_text(f"<code>{m.document.file_id}</code>", parse_mode="HTML")
 
-
 # ===================== /count =====================
 
 async def count_cmd(update, context):
     await update.message.reply_text("🔐 Введи пароль:")
     return COUNT_ASK_PWD
-
 
 async def count_check_pwd(update, context):
     if update.message.text.strip() != ADMIN_PASS:
@@ -392,7 +416,6 @@ async def count_check_pwd(update, context):
     await update.message.reply_text(f"👥 Користувачів: {total}")
     return ConversationHandler.END
 
-
 # ===================== APP =====================
 
 async def post_init(app):
@@ -400,7 +423,6 @@ async def post_init(app):
     with conn:
         conn.execute(CREATE_TABLE_SQL)
     conn.close()
-
 
 def main():
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
@@ -427,9 +449,5 @@ def main():
         allowed_updates=Update.ALL_TYPES,
     )
 
-
 if __name__ == "__main__":
     main()
-
-
-
