@@ -429,13 +429,12 @@ async def main():
     # file echo (for getting file_ids)
     app.add_handler(MessageHandler((filters.VIDEO | filters.Document.ALL), echo_file))
 
-    # ✅правильний async запуск
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-    await app.updater.wait_for_stop()
-    await app.stop()
-    await app.shutdown()
+    # ✅ ЄДИНИЙ ПРАВИЛЬНИЙ async запуск у v20+
+    await app.run_polling(
+        drop_pending_updates=True,
+        allowed_updates=Update.ALL_TYPES,
+    )
+
 
 
 if __name__ == "__main__":
