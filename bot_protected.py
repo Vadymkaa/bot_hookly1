@@ -429,14 +429,17 @@ async def main():
     # file echo (for getting file_ids)
     app.add_handler(MessageHandler((filters.VIDEO | filters.Document.ALL), echo_file))
 
-    await app.run_polling(
-        drop_pending_updates=True,
-        allowed_updates=Update.ALL_TYPES,
-    )
+    # ✅правильний async запуск
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
+    await app.updater.wait_for_stop()
+    await app.stop()
+    await app.shutdown()
 
 
-# ✅ ЄДИНИЙ ПРАВИЛЬНИЙ СТАРТЕР
 if __name__ == "__main__":
     import asyncio
     asyncio.run(main())
+
 
