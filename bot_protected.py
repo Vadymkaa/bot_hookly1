@@ -301,12 +301,12 @@ async def start(update: Update, context):
     )
 
     keyboard = [
-        [InlineKeyboardButton("Instagram 📸", url="https://instagram.com/hookly.software")]
+        [InlineKeyboardButton("Підпишись на інсту🚀 ", url="https://instagram.com/hookly.software")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        "Привіт! 👋\nОсь мої соцмережі:",
+        "",
         reply_markup=reply_markup
     )
 
