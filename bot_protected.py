@@ -213,8 +213,16 @@ async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
         job.schedule_removal()
         return
 
-    # Фінальний день — все одразу
+    # Фінальний день — все одразу, відео зверху
     if next_index == len(BEFORE_TEXTS) - 1:
+        # Надсилаємо відео
+        await send_protected_video(
+            context=context,
+            chat_id=chat_id,
+            source=VIDEO_SOURCES[next_index]
+        )
+
+        # Потім текст і кнопка
         final_text = BEFORE_TEXTS[next_index]
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("Підпишись на інсту 🎯", url="https://www.instagram.com/hookly.software/")]
@@ -225,6 +233,7 @@ async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.HTML,
             reply_markup=keyboard
         )
+
         # Оновлюємо індекс
         conn = get_db_conn()
         with conn:
@@ -261,6 +270,7 @@ async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
 
     # Плануємо after_text через 20 хв
     context.job_queue.run_once(send_after_text_job, when=20*60, chat_id=chat_id)
+
 
 
 async def send_after_text_job(context):
