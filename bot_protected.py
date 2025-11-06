@@ -306,7 +306,7 @@ async def start(update: Update, context):
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        "",
+        " ",
         reply_markup=reply_markup
     )
 
