@@ -281,6 +281,7 @@ async def start(update: Update, context):
         )
     conn.close()
 
+    # ✅ Відправляємо перше відео
     await send_protected_video(
         context=context,
         chat_id=chat_id,
@@ -288,13 +289,22 @@ async def start(update: Update, context):
         caption=BEFORE_TEXTS[0]
     )
 
-    first_index = 0
+    # ✅ Кнопка
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("Підпишись на інсту 🎯", url="https://www.instagram.com/hookly.software/")]
     ])
 
+    # ✅ Відправляємо текст з кнопкою
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="👇 Підпишись, щоб не пропустити нові уроки:",
+        reply_markup=keyboard
+    )
+
+    # ✅ Розсилка після 15 хв
     context.job_queue.run_once(send_after_text_job, when=15 * 60, chat_id=chat_id)
     schedule_user_job(context, chat_id)
+
 
 
 def schedule_user_job(context, chat_id):
