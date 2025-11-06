@@ -409,7 +409,7 @@ async def post_init(app):
     conn.close()
 
 
-async def main():
+def main():
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
     # handlers
@@ -426,19 +426,17 @@ async def main():
     )
     app.add_handler(count_conv)
 
-    # file echo (for getting file_ids)
     app.add_handler(MessageHandler((filters.VIDEO | filters.Document.ALL), echo_file))
 
-    # ✅ ЄДИНИЙ ПРАВИЛЬНИЙ async запуск у v20+
-    await app.run_polling(
+    # ✅ПРАВИЛЬНИЙ СТАРТ
+    app.run_polling(
         drop_pending_updates=True,
         allowed_updates=Update.ALL_TYPES,
     )
 
 
-
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
+
 
 
