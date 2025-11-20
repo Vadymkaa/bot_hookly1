@@ -197,29 +197,52 @@ async def send_video_job(context: CallbackContext):
     next_index = last_index + 1
 
     # --- Користувач закінчив курс ---
-    if next_index >= len(VIDEO_SOURCES):
-        if last_index == len(VIDEO_SOURCES):
-            return
+    # --- Якщо настав 6-й день (фінальний) ---
+if next_index == len(VIDEO_SOURCES):
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Підпишись на інсту 🎯", url="https://www.instagram.com/hookly.software/")],
+        [InlineKeyboardButton("🌐 Перейти на сайт", url="https://hookly.software")]
+    ])
 
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Підпишись на інсту 🎯", url="https://www.instagram.com/hookly.software/")],
-            [InlineKeyboardButton("🌐 Перейти на сайт", url="https://hookly.software")]
-        ])
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=FINISH_TEXT,
+        reply_markup=keyboard
+    )
 
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=FINISH_TEXT,
-            reply_markup=keyboard
+    conn = get_db_conn()
+    with conn:
+        conn.execute(
+            "UPDATE users SET last_index = ? WHERE chat_id = ?",
+            (next_index, chat_id)
         )
+    conn.close()
+    return
 
-        conn = get_db_conn()
-        with conn:
-            conn.execute(
-                "UPDATE users SET last_index = ? WHERE chat_id = ?",
-                (len(VIDEO_SOURCES), chat_id)
-            )
-        conn.close()
-        return
+# --- Якщо відео ще є (1–5 день) ---
+await send_protected_video(
+    context=context,
+    chat_id=chat_id,
+    source=VIDEO_SOURCES[next_index],
+    caption=BEFORE_TEXTS[next_index]
+)
+
+conn = get_db_conn()
+with conn:
+    conn.execute(
+        "UPDATE users SET last_index = ? WHERE chat_id = ?",
+        (next_index, chat_id)
+    )
+conn.close()
+
+# Планування AFTER тексту (тільки для днів 1–5)
+if next_index < len(AFTER_TEXTS) and AFTER_TEXTS[next_index]:
+    context.job_queue.run_once(
+        send_after_text_job,
+        when=20 * 60,
+        chat_id=chat_id
+    )
+
 
     # --- Надсилаємо відео ---
     await send_protected_video(
