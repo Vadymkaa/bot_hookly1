@@ -22,7 +22,6 @@ VIDEO_SOURCES: List[str] = [
     "BAACAgIAAxkBAAMoaQYXy6Ac3_yR3LIk_jl9uSIvH1wAAn6FAAJNHjBIUiXrOkZhwzw2BA",
 ]
 
-vadymka, [23.11.2025 15:13]
 BEFORE_TEXTS: List[str] = [
     """Привіт 👋
 
