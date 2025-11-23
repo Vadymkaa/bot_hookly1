@@ -22,6 +22,7 @@ VIDEO_SOURCES: List[str] = [
     "BAACAgIAAxkBAAMoaQYXy6Ac3_yR3LIk_jl9uSIvH1wAAn6FAAJNHjBIUiXrOkZhwzw2BA",
 ]
 
+vadymka, [23.11.2025 15:13]
 BEFORE_TEXTS: List[str] = [
     """Привіт 👋
 
@@ -141,7 +142,6 @@ AFTER_TEXTS: List[str] = [
     ""  # фінальний день
 ]
 
-# ✅ Додаємо FINISH_TEXT — він використовувався, але його не існувало
 FINISH_TEXT = BEFORE_TEXTS[-1]
 
 DB_PATH = os.environ.get("DB_PATH", "users.db")
@@ -180,13 +180,15 @@ async def send_protected_video(context, chat_id, source, caption=None):
         supports_streaming=True
     )
 
+# ===================== ЩОДЕННЕ НАДСИЛАННЯ =====================
+
 async def send_video_job(context: CallbackContext):
     job = context.job
     chat_id = job.chat_id
 
     conn = get_db_conn()
     cursor = conn.cursor()
-    cursor.execute("SELECT last_index FROM users WHERE chat_id = ?", (chat_id,))
+    cursor.execute("SELECT last_index FROM users WHERE chat_id=?", (chat_id,))
     row = cursor.fetchone()
     conn.close()
 
@@ -196,9 +198,9 @@ async def send_video_job(context: CallbackContext):
     last_index = row[0]
     next_index = last_index + 1
 
-    # --- 6-й день: фінальний текст, без відео ---
+    # --- ДЕНЬ 6: тільки фінальний текст ---
     if next_index == len(VIDEO_SOURCES):
-        keyboard = InlineKeyboardMarkup([
+        kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("Підпишись на інсту 🎯", url="https://www.instagram.com/hookly.software/")],
             [InlineKeyboardButton("🌐 Перейти на сайт", url="https://hookly.software")]
         ])
@@ -206,46 +208,17 @@ async def send_video_job(context: CallbackContext):
         await context.bot.send_message(
             chat_id=chat_id,
             text=FINISH_TEXT,
-            reply_markup=keyboard,
+            reply_markup=kb,
             parse_mode=ParseMode.HTML
         )
 
         conn = get_db_conn()
         with conn:
-            conn.execute(
-                "UPDATE users SET last_index = ? WHERE chat_id = ?",
-                (next_index, chat_id)
-            )
+            conn.execute("UPDATE users SET last_index=? WHERE chat_id=?", (next_index, chat_id))
         conn.close()
         return
 
-    # --- 1–5 день: відео + BEFORE текст ---
-    if next_index < len(VIDEO_SOURCES):
-        await send_protected_video(
-            context=context,
-            chat_id=chat_id,
-            source=VIDEO_SOURCES[next_index],
-            caption=BEFORE_TEXTS[next_index]
-        )
-
-        conn = get_db_conn()
-        with conn:
-            conn.execute(
-                "UPDATE users SET last_index = ? WHERE chat_id = ?",
-                (next_index, chat_id)
-            )
-        conn.close()
-
-        # AFTER текст тільки якщо існує
-        if next_index < len(AFTER_TEXTS) and AFTER_TEXTS[next_index]:
-            context.job_queue.run_once(
-                send_after_text_job,
-                when=20 * 60,
-                chat_id=chat_id
-            )
-
-
-    # --- Надсилаємо відео ---
+    # --- ДЕНІ 1–5: відео + текст ---
     await send_protected_video(
         context=context,
         chat_id=chat_id,
@@ -255,34 +228,39 @@ async def send_video_job(context: CallbackContext):
 
     conn = get_db_conn()
     with conn:
-        conn.execute(
-            "UPDATE users SET last_index = ? WHERE chat_id = ?",
-            (next_index, chat_id)
-        )
+        conn.execute("UPDATE users SET last_index=? WHERE chat_id=?", (next_index, chat_id))
     conn.close()
 
-    # Планування AFTER тексту
-    if next_index < len(AFTER_TEXTS):
+    # AFTER текст (якщо є)
+    if next_index < len(AFTER_TEXTS) and AFTER_TEXTS[next_index]:
         context.job_queue.run_once(
             send_after_text_job,
             when=20 * 60,
             chat_id=chat_id
         )
 
+# ===================== AFTER-ТЕКСТ =====================
+
 async def send_after_text_job(context):
     chat_id = context.job.chat_id
+
     conn = get_db_conn()
     cur = conn.cursor()
     cur.execute("SELECT last_index FROM users WHERE chat_id=?", (chat_id,))
     row = cur.fetchone()
     conn.close()
+
     if not row:
         return
 
-    last_index = row[0]
+    idx = row[0]
 
-    if last_index < len(AFTER_TEXTS) and AFTER_TEXTS[last_index]:
-        await context.bot.send_message(chat_id=chat_id, text=AFTER_TEXTS[last_index], parse_mode=ParseMode.HTML)
+    if idx < len(AFTER_TEXTS) and AFTER_TEXTS[idx]:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=AFTER_TEXTS[idx],
+            parse_mode=ParseMode.HTML
+        )
 
 # ===================== КОМАНДИ =====================
 
@@ -297,18 +275,18 @@ async def start(update: Update, context):
         )
     conn.close()
 
-    # День 1 — відео
+    # День 1
     await send_protected_video(context, chat_id, VIDEO_SOURCES[0])
 
-    # Текст + кнопка
-    keyboard = InlineKeyboardMarkup([
+    kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("Підписатися на інсту 🎯", url="https://www.instagram.com/hookly.software/")]
     ])
+
     await context.bot.send_message(
         chat_id=chat_id,
         text=BEFORE_TEXTS[0],
         parse_mode=ParseMode.HTML,
-        reply_markup=keyboard
+        reply_markup=kb
     )
 
     conn = get_db_conn()
@@ -316,14 +294,17 @@ async def start(update: Update, context):
         conn.execute("UPDATE users SET last_index=? WHERE chat_id=?", (0, chat_id))
     conn.close()
 
+    # AFTER 1-го дня
     context.job_queue.run_once(send_after_text_job, when=15 * 60, chat_id=chat_id)
 
     schedule_user_job(context, chat_id)
 
 def schedule_user_job(context, chat_id):
+    # очищаємо старі задачі юзера
     for j in context.job_queue.get_jobs_by_name(f"daily_{chat_id}"):
         j.schedule_removal()
 
+    # щоденна задача
     context.job_queue.run_daily(
         send_video_job,
         time=time(7, 1),
@@ -335,26 +316,31 @@ async def stop(update: Update, context):
     chat_id = update.effective_chat.id
     for j in context.job_queue.get_jobs_by_name(f"daily_{chat_id}"):
         j.schedule_removal()
+
     conn = get_db_conn()
     with conn:
         conn.execute("DELETE FROM users WHERE chat_id=?", (chat_id,))
     conn.close()
+
     await update.message.reply_text("🛑 Розсилка зупинена.")
 
 async def status_cmd(update, context):
     chat_id = update.effective_chat.id
+
     conn = get_db_conn()
     cur = conn.cursor()
     cur.execute("SELECT started_at, last_index FROM users WHERE chat_id=?", (chat_id,))
     row = cur.fetchone()
     conn.close()
+
     if not row:
         await update.message.reply_text("❗ Ти ще не почав. Натисни /start")
         return
-    started, index = row
+
+    start_at, idx = row
     await update.message.reply_text(
-        f"📅 Старт: {started}\n"
-        f"📦 Пройдено: {index + 1} із {len(VIDEO_SOURCES)}"
+        f"📅 Старт: {start_at}\n"
+        f"📦 Пройдено: {idx + 1} із {len(VIDEO_SOURCES)}"
     )
 
 async def help_cmd(update, context):
@@ -388,6 +374,7 @@ async def count_check_pwd(update, context):
     cur.execute("SELECT COUNT(*) FROM users")
     total = cur.fetchone()[0]
     conn.close()
+
     await update.message.reply_text(f"👥 Користувачів: {total}")
     return ConversationHandler.END
 
