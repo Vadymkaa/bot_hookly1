@@ -197,8 +197,8 @@ async def send_video_job(context: CallbackContext):
     last_index = row[0]
     next_index = last_index + 1
 
-    # --- ДЕНЬ 6: тільки фінальний текст ---
-    if next_index == len(VIDEO_SOURCES):
+    # ================== День 6 — тільки фінальний текст ==================
+    if next_index == 5:   # індекс 5 = 6-й день
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("Підпишись на інсту 🎯", url="https://www.instagram.com/hookly.software/")],
             [InlineKeyboardButton("🌐 Перейти на сайт", url="https://hookly.software")]
@@ -215,9 +215,11 @@ async def send_video_job(context: CallbackContext):
         with conn:
             conn.execute("UPDATE users SET last_index=? WHERE chat_id=?", (next_index, chat_id))
         conn.close()
-        return
 
-    # --- ДЕНІ 1–5: відео + текст ---
+        return  # кінець розсилки
+
+
+    # ================== День 1–5 — відео + BEFORE текст ==================
     await send_protected_video(
         context=context,
         chat_id=chat_id,
@@ -230,13 +232,14 @@ async def send_video_job(context: CallbackContext):
         conn.execute("UPDATE users SET last_index=? WHERE chat_id=?", (next_index, chat_id))
     conn.close()
 
-    # AFTER текст (якщо є)
-    if next_index < len(AFTER_TEXTS) and AFTER_TEXTS[next_index]:
+    # ================== AFTER текст ==================
+    if AFTER_TEXTS[next_index]:
         context.job_queue.run_once(
             send_after_text_job,
             when=20 * 60,
             chat_id=chat_id
         )
+
 
 # ===================== AFTER-ТЕКСТ =====================
 
