@@ -2,14 +2,17 @@ from __future__ import annotations
 import os
 import sqlite3
 import logging
+import traceback
 from datetime import datetime, timezone, time
 from typing import List
+
+from logging.handlers import RotatingFileHandler
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application, CommandHandler, ContextTypes,
-    MessageHandler, ConversationHandler, filters, CallbackContext
+    MessageHandler, ConversationHandler, filters
 )
 
 # ===================== НАЛАШТУВАННЯ =====================
@@ -82,7 +85,7 @@ BEFORE_TEXTS: List[str] = [
 
 Сьогодні — найцікавіший етап, адже настав час переходити від теорії до дії.
 
-Разом ми створимо декілька різних креативів і подивимося, як вони поводяться “в реальному світі” — які зупиняють увагу, викликають емоцію та приносять результат.
+Разом мы створимо декілька різних креативів і подивимось, як вони поводяться “в реальному світі” — які зупиняють увагу, викликають емоцію та приносять результат.
 
 🎨 У цьому уроці ти дізнаєшся:
 — як швидко створювати креативи під різні теми та продукти;
@@ -146,11 +149,24 @@ FINISH_TEXT = BEFORE_TEXTS[-1]
 DB_PATH = os.environ.get("DB_PATH", "users.db")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_PASS = os.environ.get("ADMIN_PASS", "22042004")
+ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", "0"))  # постав свій чат id або 0
 
 COUNT_ASK_PWD = 1
 
-logging.basicConfig(level=logging.INFO)
+# ===================== ЛОГУВАННЯ =====================
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# file rotating handler
+file_handler = RotatingFileHandler("bot.log", maxBytes=10_000_000, backupCount=5, encoding="utf-8")
+file_formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+file_handler.setFormatter(file_formatter)
+logger.addHandler(file_handler)
+
+# console handler
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(file_formatter)
+logger.addHandler(console_handler)
 
 # ===================== DB =====================
 
@@ -163,52 +179,99 @@ CREATE TABLE IF NOT EXISTS users (
 """
 
 def get_db_conn():
-    conn = sqlite3.connect(DB_PATH)
+    # check_same_thread=False дозволяє безпечно використовувати з різних потоків (але потрібно обережно)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL;")
     return conn
 
 # ===================== ВІДПРАВКА ВІДЕО =====================
 
-async def send_protected_video(context, chat_id, source, caption=None):
-    await context.bot.send_video(
-        chat_id=chat_id,
-        video=source,
-        caption=caption,
-        parse_mode=ParseMode.HTML,
-        protect_content=True,
-        supports_streaming=True
-    )
+async def send_protected_video(context: ContextTypes.DEFAULT_TYPE, chat_id, source, caption=None):
+    try:
+        await context.bot.send_video(
+            chat_id=chat_id,
+            video=source,
+            caption=caption,
+            parse_mode=ParseMode.HTML,
+            protect_content=True,
+            supports_streaming=True
+        )
+    except Exception:
+        logger.exception("Failed to send video to %s", chat_id)
+        # Якщо вказаний admin — повідомляємо
+        if ADMIN_CHAT_ID:
+            try:
+                await context.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text=f"⚠️ Не вдалося надіслати відео користувачу {chat_id}:\n<pre>{traceback.format_exc()}</pre>",
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                logger.exception("Failed to notify admin about send_video failure")
 
 # ===================== ЩОДЕННЕ НАДСИЛАННЯ =====================
 
-async def send_video_job(context: CallbackContext):
-    job = context.job
-    chat_id = job.chat_id
+async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        job = context.job
+        # Захист якщо chat_id не встановлено
+        chat_id = getattr(job, "chat_id", None)
+        if chat_id is None:
+            logger.warning("Job without chat_id, skipping")
+            return
 
-    conn = get_db_conn()
-    cursor = conn.cursor()
-    cursor.execute("SELECT last_index FROM users WHERE chat_id=?", (chat_id,))
-    row = cursor.fetchone()
-    conn.close()
+        conn = get_db_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT last_index FROM users WHERE chat_id=?", (chat_id,))
+        row = cursor.fetchone()
+        conn.close()
 
-    if not row:
-        return
+        if not row:
+            return
 
-    last_index = row[0]
-    next_index = last_index + 1
+        last_index = row[0]
+        next_index = last_index + 1
 
-    # ================== День 6 — тільки фінальний текст ==================
-    if next_index == 5:   # індекс 5 = 6-й день
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Підпишись на інсту 🎯", url="https://www.instagram.com/hookly.software/")],
-            [InlineKeyboardButton("🌐 Перейти на сайт", url="https://hookly.software")]
-        ])
+        # ================== День 6 — тільки фінальний текст ==================
+        if next_index == 5:   # індекс 5 = 6-й день
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("Підпишись на інсту 🎯", url="https://www.instagram.com/hookly.software/")],
+                [InlineKeyboardButton("🌐 Перейти на сайт", url="https://hookly.software")]
+            ])
 
-        await context.bot.send_message(
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=FINISH_TEXT,
+                    reply_markup=kb,
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                logger.exception("Failed to send finish message to %s", chat_id)
+                # повідомлення адміну
+                if ADMIN_CHAT_ID:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=ADMIN_CHAT_ID,
+                            text=f"⚠️ Failed to send FINISH_TEXT to {chat_id}\n<pre>{traceback.format_exc()}</pre>",
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception:
+                        logger.exception("Failed to notify admin about finish message failure")
+
+            conn = get_db_conn()
+            with conn:
+                conn.execute("UPDATE users SET last_index=? WHERE chat_id=?", (next_index, chat_id))
+            conn.close()
+
+            return  # кінець розсилки
+
+        # ================== День 1–5 — відео + BEFORE текст ==================
+        await send_protected_video(
+            context=context,
             chat_id=chat_id,
-            text=FINISH_TEXT,
-            reply_markup=kb,
-            parse_mode=ParseMode.HTML
+            source=VIDEO_SOURCES[next_index],
+            caption=BEFORE_TEXTS[next_index]
         )
 
         conn = get_db_conn()
@@ -216,136 +279,201 @@ async def send_video_job(context: CallbackContext):
             conn.execute("UPDATE users SET last_index=? WHERE chat_id=?", (next_index, chat_id))
         conn.close()
 
-        return  # кінець розсилки
+        # ================== AFTER текст ==================
+        if AFTER_TEXTS[next_index]:
+            # робимо run_once у job_queue
+            try:
+                context.job_queue.run_once(
+                    send_after_text_job,
+                    when=20 * 60,
+                    chat_id=chat_id
+                )
+            except Exception:
+                logger.exception("Failed to schedule after_text job for %s", chat_id)
 
-
-    # ================== День 1–5 — відео + BEFORE текст ==================
-    await send_protected_video(
-        context=context,
-        chat_id=chat_id,
-        source=VIDEO_SOURCES[next_index],
-        caption=BEFORE_TEXTS[next_index]
-    )
-
-    conn = get_db_conn()
-    with conn:
-        conn.execute("UPDATE users SET last_index=? WHERE chat_id=?", (next_index, chat_id))
-    conn.close()
-
-    # ================== AFTER текст ==================
-    if AFTER_TEXTS[next_index]:
-        context.job_queue.run_once(
-            send_after_text_job,
-            when=20 * 60,
-            chat_id=chat_id
-        )
-
+    except Exception:
+        logger.exception("Unhandled exception in send_video_job")
+        # повідомляємо адміну для швидкого реагування
+        if ADMIN_CHAT_ID:
+            try:
+                await context.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text=f"🔥 Exception in send_video_job:\n<pre>{traceback.format_exc()}</pre>",
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                logger.exception("Failed to notify admin about send_video_job exception")
 
 # ===================== AFTER-ТЕКСТ =====================
 
-async def send_after_text_job(context):
-    chat_id = context.job.chat_id
+async def send_after_text_job(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        job = context.job
+        chat_id = getattr(job, "chat_id", None)
+        if chat_id is None:
+            logger.warning("After-text job without chat_id, skipping")
+            return
 
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT last_index FROM users WHERE chat_id=?", (chat_id,))
-    row = cur.fetchone()
-    conn.close()
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT last_index FROM users WHERE chat_id=?", (chat_id,))
+        row = cur.fetchone()
+        conn.close()
 
-    if not row:
-        return
+        if not row:
+            return
 
-    idx = row[0]
+        idx = row[0]
 
-    if idx < len(AFTER_TEXTS) and AFTER_TEXTS[idx]:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=AFTER_TEXTS[idx],
-            parse_mode=ParseMode.HTML
-        )
+        if idx < len(AFTER_TEXTS) and AFTER_TEXTS[idx]:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=AFTER_TEXTS[idx],
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                logger.exception("Failed to send after text to %s", chat_id)
+                if ADMIN_CHAT_ID:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=ADMIN_CHAT_ID,
+                            text=f"⚠️ Failed to send AFTER_TEXT to {chat_id}\n<pre>{traceback.format_exc()}</pre>",
+                            parse_mode=ParseMode.HTML
+                        )
+                    except Exception:
+                        logger.exception("Failed to notify admin about after_text failure")
+
+    except Exception:
+        logger.exception("Unhandled exception in send_after_text_job")
+        if ADMIN_CHAT_ID:
+            try:
+                await context.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text=f"🔥 Exception in send_after_text_job:\n<pre>{traceback.format_exc()}</pre>",
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                logger.exception("Failed to notify admin about after_text exception")
 
 # ===================== КОМАНДИ =====================
 
-async def start(update: Update, context):
-    chat_id = update.effective_chat.id
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        chat_id = update.effective_chat.id
 
-    conn = get_db_conn()
-    with conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO users(chat_id, started_at, last_index) VALUES(?,?,?)",
-            (chat_id, datetime.now(timezone.utc).isoformat(), -1)
+        conn = get_db_conn()
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO users(chat_id, started_at, last_index) VALUES(?,?,?)",
+                (chat_id, datetime.now(timezone.utc).isoformat(), -1)
+            )
+        conn.close()
+
+        # День 1
+        await send_protected_video(context, chat_id, VIDEO_SOURCES[0])
+
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Підписатися на інсту 🎯", url="https://www.instagram.com/hookly.software/")]
+        ])
+
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=BEFORE_TEXTS[0],
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb
+            )
+        except Exception:
+            logger.exception("Failed to send start message to %s", chat_id)
+
+        conn = get_db_conn()
+        with conn:
+            conn.execute("UPDATE users SET last_index=? WHERE chat_id=?", (0, chat_id))
+        conn.close()
+
+        # AFTER 1-го дня
+        try:
+            context.job_queue.run_once(send_after_text_job, when=15 * 60, chat_id=chat_id)
+        except Exception:
+            logger.exception("Failed to schedule after_text for start")
+
+        schedule_user_job(context, chat_id)
+    except Exception:
+        logger.exception("Unhandled exception in start")
+        if ADMIN_CHAT_ID:
+            try:
+                await context.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text=f"🔥 Exception in start handler:\n<pre>{traceback.format_exc()}</pre>",
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                logger.exception("Failed to notify admin about start exception")
+
+def schedule_user_job(context: ContextTypes.DEFAULT_TYPE, chat_id):
+    try:
+        # очищаємо старі задачі юзера
+        for j in context.job_queue.get_jobs_by_name(f"daily_{chat_id}"):
+            j.schedule_removal()
+
+        # щоденна задача
+        context.job_queue.run_daily(
+            send_video_job,
+            time=time(7, 1),
+            chat_id=chat_id,
+            name=f"daily_{chat_id}"
         )
-    conn.close()
+    except Exception:
+        logger.exception("Failed to schedule daily job for %s", chat_id)
 
-    # День 1
-    await send_protected_video(context, chat_id, VIDEO_SOURCES[0])
+async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        chat_id = update.effective_chat.id
+        for j in context.job_queue.get_jobs_by_name(f"daily_{chat_id}"):
+            j.schedule_removal()
 
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Підписатися на інсту 🎯", url="https://www.instagram.com/hookly.software/")]
-    ])
+        conn = get_db_conn()
+        with conn:
+            conn.execute("DELETE FROM users WHERE chat_id=?", (chat_id,))
+        conn.close()
 
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=BEFORE_TEXTS[0],
-        parse_mode=ParseMode.HTML,
-        reply_markup=kb
-    )
+        await update.message.reply_text("🛑 Розсилка зупинена.")
+    except Exception:
+        logger.exception("Unhandled exception in stop")
+        if ADMIN_CHAT_ID:
+            try:
+                await context.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text=f"🔥 Exception in stop handler:\n<pre>{traceback.format_exc()}</pre>",
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception:
+                logger.exception("Failed to notify admin about stop exception")
 
-    conn = get_db_conn()
-    with conn:
-        conn.execute("UPDATE users SET last_index=? WHERE chat_id=?", (0, chat_id))
-    conn.close()
+async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        chat_id = update.effective_chat.id
 
-    # AFTER 1-го дня
-    context.job_queue.run_once(send_after_text_job, when=15 * 60, chat_id=chat_id)
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT started_at, last_index FROM users WHERE chat_id=?", (chat_id,))
+        row = cur.fetchone()
+        conn.close()
 
-    schedule_user_job(context, chat_id)
+        if not row:
+            await update.message.reply_text("❗ Ти ще не почав. Натисни /start")
+            return
 
-def schedule_user_job(context, chat_id):
-    # очищаємо старі задачі юзера
-    for j in context.job_queue.get_jobs_by_name(f"daily_{chat_id}"):
-        j.schedule_removal()
+        start_at, idx = row
+        await update.message.reply_text(
+            f"📅 Старт: {start_at}\n"
+            f"📦 Пройдено: {idx + 1} із {len(VIDEO_SOURCES)}"
+        )
+    except Exception:
+        logger.exception("Unhandled exception in status_cmd")
 
-    # щоденна задача
-    context.job_queue.run_daily(
-        send_video_job,
-        time=time(7, 1),
-        chat_id=chat_id,
-        name=f"daily_{chat_id}"
-    )
-
-async def stop(update: Update, context):
-    chat_id = update.effective_chat.id
-    for j in context.job_queue.get_jobs_by_name(f"daily_{chat_id}"):
-        j.schedule_removal()
-
-    conn = get_db_conn()
-    with conn:
-        conn.execute("DELETE FROM users WHERE chat_id=?", (chat_id,))
-    conn.close()
-
-    await update.message.reply_text("🛑 Розсилка зупинена.")
-
-async def status_cmd(update, context):
-    chat_id = update.effective_chat.id
-
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT started_at, last_index FROM users WHERE chat_id=?", (chat_id,))
-    row = cur.fetchone()
-    conn.close()
-
-    if not row:
-        await update.message.reply_text("❗ Ти ще не почав. Натисни /start")
-        return
-
-    start_at, idx = row
-    await update.message.reply_text(
-        f"📅 Старт: {start_at}\n"
-        f"📦 Пройдено: {idx + 1} із {len(VIDEO_SOURCES)}"
-    )
-
-async def help_cmd(update, context):
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "/start — почати\n"
         "/stop — зупинити\n"
@@ -353,40 +481,64 @@ async def help_cmd(update, context):
         "/help — довідка\n"
     )
 
-async def echo_file(update, context):
-    m = update.message
-    if m.video:
-        await m.reply_text(f"<code>{m.video.file_id}</code>", parse_mode="HTML")
-    elif m.document:
-        await m.reply_text(f"<code>{m.document.file_id}</code>", parse_mode="HTML")
+async def echo_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        m = update.message
+        if m.video:
+            await m.reply_text(f"<code>{m.video.file_id}</code>", parse_mode="HTML")
+        elif m.document:
+            await m.reply_text(f"<code>{m.document.file_id}</code>", parse_mode="HTML")
+    except Exception:
+        logger.exception("Unhandled exception in echo_file")
 
 # ===================== /count =====================
 
-async def count_cmd(update, context):
+async def count_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔐 Введи пароль:")
     return COUNT_ASK_PWD
 
-async def count_check_pwd(update, context):
-    if update.message.text.strip() != ADMIN_PASS:
-        await update.message.reply_text("❌ Невірний пароль")
-        return COUNT_ASK_PWD
+async def count_check_pwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        if update.message.text.strip() != ADMIN_PASS:
+            await update.message.reply_text("❌ Невірний пароль")
+            return COUNT_ASK_PWD
 
-    conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM users")
-    total = cur.fetchone()[0]
-    conn.close()
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM users")
+        total = cur.fetchone()[0]
+        conn.close()
 
-    await update.message.reply_text(f"👥 Користувачів: {total}")
-    return ConversationHandler.END
+        await update.message.reply_text(f"👥 Користувачів: {total}")
+        return ConversationHandler.END
+    except Exception:
+        logger.exception("Unhandled exception in count_check_pwd")
+        await update.message.reply_text("❌ Помилка при підрахунку")
+        return ConversationHandler.END
 
 # ===================== APP =====================
 
 async def post_init(app):
-    conn = get_db_conn()
-    with conn:
-        conn.execute(CREATE_TABLE_SQL)
-    conn.close()
+    try:
+        conn = get_db_conn()
+        with conn:
+            conn.execute(CREATE_TABLE_SQL)
+        conn.close()
+    except Exception:
+        logger.exception("Failed to run post_init")
+
+async def error_handler(update: object | None, context: ContextTypes.DEFAULT_TYPE):
+    # глобальний handler для необроблених винятків
+    logger.exception("Update caused error")
+    if ADMIN_CHAT_ID:
+        try:
+            text = "🔥 Unhandled exception\n"
+            if update:
+                text = f"🔥 Unhandled exception for update: {getattr(update, 'update_id', 'n/a')}\n"
+            text += f"<pre>{traceback.format_exc()}</pre>"
+            await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=text, parse_mode=ParseMode.HTML)
+        except Exception:
+            logger.exception("Failed to send error to admin")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
@@ -404,6 +556,8 @@ def main():
     app.add_handler(count_conv)
 
     app.add_handler(MessageHandler((filters.VIDEO | filters.Document.ALL), echo_file))
+
+    app.add_error_handler(error_handler)
 
     app.run_polling(
         drop_pending_updates=True,
