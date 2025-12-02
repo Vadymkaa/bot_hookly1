@@ -154,6 +154,11 @@ ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", "0"))  # постав сві
 COUNT_ASK_PWD = 1
 DEBUG_ASK_PWD = 1001
 
+# Telegram caption limit
+MAX_CAPTION_LEN = 1024
+# chunk size for long messages (safe margin)
+MSG_CHUNK_SIZE = 4000
+
 # ===================== ЛОГУВАННЯ =====================
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -184,20 +189,59 @@ def get_db_conn():
     conn.execute("PRAGMA journal_mode=WAL;")
     return conn
 
+# ===================== HELPERS =====================
+
+async def send_long_message(bot, chat_id: int, text: str, parse_mode=ParseMode.HTML, chunk_size: int = MSG_CHUNK_SIZE):
+    if not text:
+        return
+    start = 0
+    while start < len(text):
+        part = text[start:start+chunk_size]
+        try:
+            await bot.send_message(chat_id=chat_id, text=part, parse_mode=parse_mode)
+        except Exception:
+            logger.exception("Failed to send chunk as HTML, retrying without parse_mode")
+            try:
+                await bot.send_message(chat_id=chat_id, text=part)
+            except Exception:
+                logger.exception("Failed to send message chunk to %s", chat_id)
+        start += chunk_size
+
 # ===================== ВІДПРАВКА ВІДЕО =====================
 
-async def send_protected_video(context: ContextTypes.DEFAULT_TYPE, chat_id, source, caption=None):
+async def send_protected_video(context: ContextTypes.DEFAULT_TYPE, chat_id: int, source, caption: str | None = None):
+    """
+    Надсилає відео. Якщо caption <= MAX_CAPTION_LEN — надсилаємо як caption.
+    Якщо caption > MAX_CAPTION_LEN — надсилаємо відео без caption і потім
+    відправляємо caption як окреме (можливо розбиття) повідомлення.
+    """
     try:
+        if caption and len(caption) <= MAX_CAPTION_LEN:
+            await context.bot.send_video(
+                chat_id=chat_id,
+                video=source,
+                caption=caption,
+                parse_mode=ParseMode.HTML,
+                protect_content=True,
+                supports_streaming=True
+            )
+            return
+
+        # send video without caption
         await context.bot.send_video(
             chat_id=chat_id,
             video=source,
-            caption=caption,
-            parse_mode=ParseMode.HTML,
             protect_content=True,
             supports_streaming=True
         )
+
+        # then send caption as one or multiple messages
+        if caption:
+            await send_long_message(context.bot, chat_id, caption, parse_mode=ParseMode.HTML)
+
     except Exception:
         logger.exception("Failed to send video to %s", chat_id)
+        # повідомлення адміну
         if ADMIN_CHAT_ID:
             try:
                 await context.bot.send_message(
@@ -236,7 +280,6 @@ async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("Підпишись на інсту 🎯", url="https://www.instagram.com/hookly.software/")],
                 [InlineKeyboardButton("🌐 Перейти на сайт", url="https://hookly.software")]
             ])
-
             try:
                 await context.bot.send_message(
                     chat_id=chat_id,
@@ -322,11 +365,7 @@ async def send_after_text_job(context: ContextTypes.DEFAULT_TYPE):
 
         if idx < len(AFTER_TEXTS) and AFTER_TEXTS[idx]:
             try:
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=AFTER_TEXTS[idx],
-                    parse_mode=ParseMode.HTML
-                )
+                await send_long_message(context.bot, chat_id, AFTER_TEXTS[idx], parse_mode=ParseMode.HTML)
             except Exception:
                 logger.exception("Failed to send after text to %s", chat_id)
                 if ADMIN_CHAT_ID:
@@ -366,19 +405,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
 
         # День 1
-        await send_protected_video(context, chat_id, VIDEO_SOURCES[0])
+        await send_protected_video(context, chat_id, VIDEO_SOURCES[0], BEFORE_TEXTS[0])
 
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("Підписатися на інсту 🎯", url="https://www.instagram.com/hookly.software/")]
         ])
 
         try:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=BEFORE_TEXTS[0],
-                parse_mode=ParseMode.HTML,
-                reply_markup=kb
-            )
+            await send_long_message(context.bot, chat_id, BEFORE_TEXTS[0], parse_mode=ParseMode.HTML)
+            # Also send the subscription button as a separate message for clarity
+            await context.bot.send_message(chat_id=chat_id, reply_markup=kb, text=" ")
         except Exception:
             logger.exception("Failed to send start message to %s", chat_id)
 
@@ -406,7 +442,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 logger.exception("Failed to notify admin about start exception")
 
-def schedule_user_job(context: ContextTypes.DEFAULT_TYPE, chat_id):
+def schedule_user_job(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
     try:
         for j in context.job_queue.get_jobs_by_name(f"daily_{chat_id}"):
             j.schedule_removal()
@@ -472,6 +508,8 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/stop — зупинити\n"
         "/status — статус\n"
         "/help — довідка\n"
+        "/debug — адмін: програти весь курс\n"
+        "/delete_webhook — адмін: видалити webhook (якщо хочеш використовувати polling)"
     )
 
 async def echo_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -549,12 +587,11 @@ async def debug_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await send_protected_video(context, chat_id, VIDEO_SOURCES[i], BEFORE_TEXTS[i])
         except Exception:
-            # лог уже робиться всередині send_protected_video
             pass
 
         if AFTER_TEXTS[i]:
             try:
-                await context.bot.send_message(chat_id, AFTER_TEXTS[i], parse_mode=ParseMode.HTML)
+                await send_long_message(context.bot, chat_id, AFTER_TEXTS[i], parse_mode=ParseMode.HTML)
             except Exception:
                 logger.exception("Failed to send after text during debug to %s", chat_id)
 
@@ -565,25 +602,52 @@ async def debug_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
 
     try:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=FINISH_TEXT,
-            reply_markup=kb,
-            parse_mode=ParseMode.HTML
-        )
+        await send_long_message(context.bot, chat_id, FINISH_TEXT, parse_mode=ParseMode.HTML)
+        await context.bot.send_message(chat_id=chat_id, reply_markup=kb, text=" ")
     except Exception:
         logger.exception("Failed to send finish text during debug to %s", chat_id)
 
     await context.bot.send_message(chat_id, "✅ Перевірка закінчена. Всі етапи пройдені.")
 
+# ===================== WEBHOOK HELPERS =====================
+
+async def delete_webhook_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Only admin
+    if str(update.effective_user.id) != str(ADMIN_CHAT_ID):
+        await update.message.reply_text("Немає прав.")
+        return
+    try:
+        await context.bot.delete_webhook(drop_pending_updates=True)
+        await update.message.reply_text("Webhook видалено. Тепер бот може працювати через polling.")
+    except Exception:
+        logger.exception("Failed to delete webhook")
+        await update.message.reply_text("Не вдалося видалити webhook. Подивись логи.")
+
 # ===================== APP =====================
 
 async def post_init(app):
     try:
+        # DB init
         conn = get_db_conn()
         with conn:
             conn.execute(CREATE_TABLE_SQL)
         conn.close()
+
+        # Check webhook info and warn admin if set (to avoid getUpdates conflict)
+        try:
+            webhook_info = await app.bot.get_webhook_info()
+            url = getattr(webhook_info, "url", None)
+            if url:
+                msg = f"⚠️ Webhook currently set to: {url}. If you use polling, delete webhook (use /delete_webhook or deleteWebhook)."
+                logger.warning(msg)
+                if ADMIN_CHAT_ID:
+                    try:
+                        await app.bot.send_message(chat_id=ADMIN_CHAT_ID, text=msg)
+                    except Exception:
+                        logger.exception("Failed to notify admin about webhook info")
+        except Exception:
+            # Some providers / versions may not support get_webhook_info; ignore
+            logger.exception("Could not get webhook info")
     except Exception:
         logger.exception("Failed to run post_init")
 
@@ -607,6 +671,7 @@ def main():
     app.add_handler(CommandHandler("stop", stop))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("delete_webhook", delete_webhook_cmd))
 
     # count conversation
     count_conv = ConversationHandler(
@@ -633,6 +698,7 @@ def main():
     # global error handler
     app.add_error_handler(error_handler)
 
+    # Start polling (ensure only one instance uses this BOT_TOKEN)
     app.run_polling(
         drop_pending_updates=True,
         allowed_updates=Update.ALL_TYPES,
