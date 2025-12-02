@@ -12,7 +12,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application, CommandHandler, ContextTypes,
-    MessageHandler, ConversationHandler, filters
+    MessageHandler, ConversationHandler, filters, CallbackQueryHandler
 )
 
 # ===================== НАЛАШТУВАННЯ =====================
@@ -139,7 +139,7 @@ AFTER_TEXTS: List[str] = [
 “Який із них більше захотілося натиснути?”
 Інколи найкращий фідбек — це чесна реакція аудиторії.""",
     """💭Вибери один зі своїх готових креативів і збережи його в трьох форматах (PNG, JPG, PDF).
-Переглянь кожен на телефоні, комп’ютері й у Telegram.
+Переглянь кожен на телефоні, комп’ютері й уTelegram.
 Зверни увагу, як змінюється якість — так ти навчишся бачити різницю професійного підходу 👁‍🗨""",
     ""  # фінальний день
 ]
@@ -152,6 +152,7 @@ ADMIN_PASS = os.environ.get("ADMIN_PASS", "22042004")
 ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", "0"))  # постав свій чат id або 0
 
 COUNT_ASK_PWD = 1
+DEBUG_ASK_PWD = 1001
 
 # ===================== ЛОГУВАННЯ =====================
 logger = logging.getLogger(__name__)
@@ -179,7 +180,6 @@ CREATE TABLE IF NOT EXISTS users (
 """
 
 def get_db_conn():
-    # check_same_thread=False дозволяє безпечно використовувати з різних потоків (але потрібно обережно)
     conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL;")
     return conn
@@ -198,7 +198,6 @@ async def send_protected_video(context: ContextTypes.DEFAULT_TYPE, chat_id, sour
         )
     except Exception:
         logger.exception("Failed to send video to %s", chat_id)
-        # Якщо вказаний admin — повідомляємо
         if ADMIN_CHAT_ID:
             try:
                 await context.bot.send_message(
@@ -214,7 +213,6 @@ async def send_protected_video(context: ContextTypes.DEFAULT_TYPE, chat_id, sour
 async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
     try:
         job = context.job
-        # Захист якщо chat_id не встановлено
         chat_id = getattr(job, "chat_id", None)
         if chat_id is None:
             logger.warning("Job without chat_id, skipping")
@@ -232,8 +230,8 @@ async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
         last_index = row[0]
         next_index = last_index + 1
 
-        # ================== День 6 — тільки фінальний текст ==================
-        if next_index == 5:   # індекс 5 = 6-й день
+        # День 6 — тільки фінальний текст
+        if next_index == 5:
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("Підпишись на інсту 🎯", url="https://www.instagram.com/hookly.software/")],
                 [InlineKeyboardButton("🌐 Перейти на сайт", url="https://hookly.software")]
@@ -248,7 +246,6 @@ async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception:
                 logger.exception("Failed to send finish message to %s", chat_id)
-                # повідомлення адміну
                 if ADMIN_CHAT_ID:
                     try:
                         await context.bot.send_message(
@@ -264,9 +261,9 @@ async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
                 conn.execute("UPDATE users SET last_index=? WHERE chat_id=?", (next_index, chat_id))
             conn.close()
 
-            return  # кінець розсилки
+            return
 
-        # ================== День 1–5 — відео + BEFORE текст ==================
+        # День 1–5 — відео + BEFORE текст
         await send_protected_video(
             context=context,
             chat_id=chat_id,
@@ -279,9 +276,8 @@ async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
             conn.execute("UPDATE users SET last_index=? WHERE chat_id=?", (next_index, chat_id))
         conn.close()
 
-        # ================== AFTER текст ==================
+        # AFTER текст
         if AFTER_TEXTS[next_index]:
-            # робимо run_once у job_queue
             try:
                 context.job_queue.run_once(
                     send_after_text_job,
@@ -293,7 +289,6 @@ async def send_video_job(context: ContextTypes.DEFAULT_TYPE):
 
     except Exception:
         logger.exception("Unhandled exception in send_video_job")
-        # повідомляємо адміну для швидкого реагування
         if ADMIN_CHAT_ID:
             try:
                 await context.bot.send_message(
@@ -413,11 +408,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def schedule_user_job(context: ContextTypes.DEFAULT_TYPE, chat_id):
     try:
-        # очищаємо старі задачі юзера
         for j in context.job_queue.get_jobs_by_name(f"daily_{chat_id}"):
             j.schedule_removal()
 
-        # щоденна задача
         context.job_queue.run_daily(
             send_video_job,
             time=time(7, 1),
@@ -516,6 +509,73 @@ async def count_check_pwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Помилка при підрахунку")
         return ConversationHandler.END
 
+# ===================== DEBUG / ADMINSKA КНОПКА =====================
+
+async def debug_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🔐 Введи адмін-пароль:")
+    return DEBUG_ASK_PWD
+
+async def debug_check_pwd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    pwd = update.message.text.strip()
+
+    if pwd != ADMIN_PASS:
+        await update.message.reply_text("❌ Невірний пароль")
+        return DEBUG_ASK_PWD
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("▶ Пройти весь курс (адмін)", callback_data="debug_run_all")]
+    ])
+
+    await update.message.reply_text(
+        "✅ Адмін-режим увімкнено.\nНатисни кнопку нижче, щоб програти весь курс.",
+        reply_markup=kb
+    )
+
+    return ConversationHandler.END
+
+async def debug_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data != "debug_run_all":
+        return
+
+    chat_id = query.message.chat.id
+
+    await context.bot.send_message(chat_id, "▶ Починаю програвання всіх днів…")
+
+    # День 1–5: відео + BEFORE + AFTER (одразу)
+    for i in range(5):
+        try:
+            await send_protected_video(context, chat_id, VIDEO_SOURCES[i], BEFORE_TEXTS[i])
+        except Exception:
+            # лог уже робиться всередині send_protected_video
+            pass
+
+        if AFTER_TEXTS[i]:
+            try:
+                await context.bot.send_message(chat_id, AFTER_TEXTS[i], parse_mode=ParseMode.HTML)
+            except Exception:
+                logger.exception("Failed to send after text during debug to %s", chat_id)
+
+    # День 6: фінальний текст
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Підпишись на інсту 🎯", url="https://www.instagram.com/hookly.software/")],
+        [InlineKeyboardButton("🌐 Перейти на сайт", url="https://hookly.software")]
+    ])
+
+    try:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=FINISH_TEXT,
+            reply_markup=kb,
+            parse_mode=ParseMode.HTML
+        )
+    except Exception:
+        logger.exception("Failed to send finish text during debug to %s", chat_id)
+
+    await context.bot.send_message(chat_id, "✅ Перевірка закінчена. Всі етапи пройдені.")
+
 # ===================== APP =====================
 
 async def post_init(app):
@@ -528,7 +588,6 @@ async def post_init(app):
         logger.exception("Failed to run post_init")
 
 async def error_handler(update: object | None, context: ContextTypes.DEFAULT_TYPE):
-    # глобальний handler для необроблених винятків
     logger.exception("Update caused error")
     if ADMIN_CHAT_ID:
         try:
@@ -543,11 +602,13 @@ async def error_handler(update: object | None, context: ContextTypes.DEFAULT_TYP
 def main():
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
+    # basic handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stop", stop))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
 
+    # count conversation
     count_conv = ConversationHandler(
         entry_points=[CommandHandler("count", count_cmd)],
         states={COUNT_ASK_PWD: [MessageHandler(filters.TEXT & ~filters.COMMAND, count_check_pwd)]},
@@ -555,8 +616,21 @@ def main():
     )
     app.add_handler(count_conv)
 
+    # debug/admin conversation
+    debug_conv = ConversationHandler(
+        entry_points=[CommandHandler("debug", debug_cmd)],
+        states={DEBUG_ASK_PWD: [MessageHandler(filters.TEXT & ~filters.COMMAND, debug_check_pwd)]},
+        fallbacks=[],
+    )
+    app.add_handler(debug_conv)
+
+    # callback for debug button
+    app.add_handler(CallbackQueryHandler(debug_callback, pattern="debug_run_all"))
+
+    # file id echo
     app.add_handler(MessageHandler((filters.VIDEO | filters.Document.ALL), echo_file))
 
+    # global error handler
     app.add_error_handler(error_handler)
 
     app.run_polling(
