@@ -137,7 +137,7 @@ FINISH_TEXT = """💚 Вітаю, ти пройшов(ла) курс «Як ст
 
 👉 Hookly допоможе зробити це якісно, швидко й зі смаком.
 
-🌐 Напиши нам в інстаграм або ж в особисті в телеграм @hookly_software —
+🌐 Напиши нам в інстаграм або ж в особисті в телеграм @hookly1_software —
 ми підберемо рішення саме для твого проєкту.
 Також ти можеш подивитись про нас детальніше на нашому сайті: 🌐 <a href="https://hookly.org/">Hookly</a>
 
@@ -432,7 +432,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         try:
             # send text separately (handles long text)
-            await send_long_message(context.bot, chat_id, BEFORE_TEXTS[0], parse_mode=ParseMode.HTML)
             # send small empty message with buttons
             await context.bot.send_message(chat_id=chat_id, reply_markup=kb, text=" ")
         except Exception:
